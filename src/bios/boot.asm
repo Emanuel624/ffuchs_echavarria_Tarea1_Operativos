@@ -1,73 +1,54 @@
 ; ==============================================================================
-; boot.asm - Punto de Entrada BIOS Legacy
-; ==============================================================================
-;
-; Este es el sector de arranque (boot sector) que la BIOS carga en la dirección
-; física 0x7C00 (CS:IP = 0x0000:0x7C00 o 0x07C0:0x0000). Se ejecuta en modo
-; real de 16 bits con interrupciones habilitadas. Su tamaño debe ser exactamente
-; 512 bytes y terminar con la firma 0xAA55 en los dos últimos bytes.
+; boot.asm - MBR: carga sectores desde disco y salta a la 2ª etapa
 ; ==============================================================================
 
-[org 0x7C00]          ; Directiva al ensamblador: todas las direcciones de
-                      ; memoria se calculan a partir de 0x7C00. Esto es necesario
-                      ; porque el código se carga en esa dirección física.
-[bits 16]             ; El procesador arranca en modo real de 16 bits.
+[org 0x7C00]            ; Indica al ensamblador que el código se cargará en 0x7C00
+[bits 16]               ; Genera código para modo real de 16 bits
 
+; Punto de entrada: salto far para forzar CS=0
 boot_start:
-    ; --------------------------------------------------------------------------
-    ; Salto far para forzar CS = 0x0000 y establecer un punto de referencia
-    ; de segmento conocido. El BIOS puede haber cargado el sector con diferentes
-    ; valores en CS:IP (por ejemplo, 0x0000:0x7C00 o 0x07C0:0x0000). Este salto
-    ; unifica la segmentación: a partir de aquí CS = 0x0000, IP = init_segments.
-    ; --------------------------------------------------------------------------
-    jmp 0x0000:init_segments
+    jmp 0x0000:init_boot_env   ; Salto lejano: CS=0, IP=init_boot_env
 
-init_segments:
-    ; Deshabilitar interrupciones mientras se configuran los registros de segmento
-    ; y la pila, para evitar que una interrupción use valores inconsistentes.
-    cli
+; Inicializa segmentos, pila y guarda la unidad de booteo
+init_boot_env:
+    cli                        ; Deshabilita interrupciones mientras configuramos
+    xor ax, ax                 ; AX = 0
+    mov ds, ax                 ; DS = 0 (segmento de datos)
+    mov es, ax                 ; ES = 0 (segmento extra)
+    mov ss, ax                 ; SS = 0 (segmento de pila)
+    mov sp, 0x7C00             ; Pila justo debajo del MBR (crece hacia abajo)
+    mov [BOOT_DRIVE], dl       ; Guarda la unidad de booteo (BIOS la pasa en DL)
+    sti                        ; Rehabilita interrupciones
 
-    ; Poner todos los segmentos de datos a 0x0000 (apuntan al mismo espacio lineal
-    ; que CS, pues CS ya es 0). Esto simplifica el direccionamiento: direcciones
-    ; de 16 bits (offset) se mapean directamente a los primeros 64 KB de memoria.
-    xor ax, ax
-    mov ds, ax          ; DS = 0 (segmento de datos)
-    mov es, ax          ; ES = 0 (segmento extra)
-    mov ss, ax          ; SS = 0 (segmento de pila)
+    ; Resetear controlador de disco (INT 13h AH=00h)
+    mov ah, 0x00               ; Función 0x00: resetear sistema de disco
+    int 0x13                   ; Llama a la BIOS para resetear el disco
 
-    ; Establecer el puntero de pila (SP) justo debajo de nuestro código, es decir,
-    ; en la dirección 0x7C00. La pila crece hacia direcciones decrecientes, por lo
-    ; que las primeras operaciones de push escribirán en 0x7BFF, 0x7BFE, etc.
-    ; Esto es seguro porque el código ocupa desde 0x7C00 hacia arriba (hasta
-    ; 0x7DFF aproximadamente) y la pila no choca con él si se usa con cuidado.
-    mov sp, 0x7C00
+    ; Leer 16 sectores desde el sector 2 a 0x7E00 (justo después del MBR)
+    mov ah, 0x02               ; Función 0x02: leer sectores del disco
+    mov al, 16                 ; Número de sectores a leer (16 = 8 KB)
+    mov ch, 0                  ; Cilindro 0 (CHS: cilindro)
+    mov cl, 2                  ; Sector de inicio 2 (el sector 1 es el MBR)
+    mov dh, 0                  ; Cabeza 0 (CHS: cabeza)
+    mov bx, 0x7E00             ; Dirección de destino en memoria (ES:BX = 0x0000:0x7E00)
+    int 0x13                   ; Llama a la BIOS para ejecutar la lectura
+    jc disk_error              ; Si hubo error (Carry Flag = 1), salta a disk_error
 
-    ; Rehabilitar interrupciones después de la configuración.
-    sti
+    ; Saltar al código cargado (main_start en 0x7E00)
+    jmp main_start             ; Salta a la etiqueta main_start (definida en main.asm)
 
-    ; Saltar al flujo principal del sistema (definido en main.asm). Este salto
-    ; es absoluto dentro del mismo segmento (CS = 0), por lo que solo se modifica IP.
-    ; main_start debe estar definido en uno de los archivos incluidos.
-    jmp main_start
+disk_error:
+    mov ah, 0x0E               ; Función 0x0E: escribir carácter en modo teletype
+    mov al, 'E'                ; Carácter 'E' para indicar error
+    int 0x10                   ; Llama a la BIOS para imprimir
+    cli                        ; Deshabilita interrupciones
+    hlt                        ; Detiene el procesador
 
-; ------------------------------------------------------------------------------
-; Inclusión de otros módulos que contienen el código funcional del bootloader.
-; - screen.asm: probablemente contiene rutinas para imprimir caracteres y
-;   manejar la pantalla en modo texto (usando interrupciones BIOS o E/S directa).
-; - main.asm: contiene la lógica principal, como cargar el kernel desde el disco,
-;   cambiar a modo protegido, etc.
-; ------------------------------------------------------------------------------
-%include "src/bios/screen.asm"
-%include "src/bios/main.asm"
+BOOT_DRIVE db 0                ; Variable de 1 byte para almacenar la unidad de booteo
 
-; ------------------------------------------------------------------------------
-; Relleno del sector para que ocupe exactamente 510 bytes (sin contar la firma).
-; El ensamblador calcula la diferencia entre la posición actual ($) y el inicio
-; del sector ($$), y la resta de 510 para rellenar con ceros. Esto asegura que
-; los dos últimos bytes sean la firma.
-; ------------------------------------------------------------------------------
-times 510 - ($ - $$) db 0
+; Relleno y firma MBR (510 bytes + 0xAA55)
+times 510 - ($ - $$) db 0      ; Rellena con ceros hasta el byte 510 (los 2 últimos son la firma)
+dw 0xAA55                      ; Firma MBR: 0x55 0xAA (en memoria little-endian)
 
-; Firma MBR obligatoria: 0x55 0xAA en los últimos dos bytes del sector.
-; El BIOS verifica esta firma para considerar el sector como válido.
-dw 0xAA55
+; Incluir la segunda etapa (main.asm) – ocupará sector 2 en adelante
+%include "src/bios/main.asm"   ; Inserta el contenido de main.asm aquí
