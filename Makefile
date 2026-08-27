@@ -2,13 +2,6 @@
 # Makefile - CE4303 Sistemas Operativos
 # ==============================================================================
 
-
-$(BIOS_IMAGE): src/bios/boot.asm src/bios/main.asm src/bios/screen.asm src/bios/rtc.asm src/bios/input.asm src/bios/chrono.asm
-	@mkdir -p $(BIN_DIR)
-	$(ASM) $(ASM_FLAGS) src/bios/boot.asm -o $(BIOS_IMAGE)
-	@truncate -s 1440k $(BIOS_IMAGE)
-	@echo "==> [BIOS] Imagen generada: $(BIOS_IMAGE)"
-
 ASM = nasm
 ASM_FLAGS = -f bin
 BIN_DIR = bin
@@ -19,7 +12,7 @@ BIOS_IMAGE = $(BIN_DIR)/bios_clock.img
 
 all: $(BIOS_IMAGE)
 
-$(BIOS_IMAGE): src/bios/boot.asm src/bios/main.asm src/bios/screen.asm src/bios/rtc.asm src/bios/input.asm
+$(BIOS_IMAGE): src/bios/boot.asm src/bios/main.asm src/bios/screen.asm src/bios/rtc.asm src/bios/input.asm src/bios/chrono.asm src/bios/alarm.asm
 	@mkdir -p $(BIN_DIR)
 	$(ASM) $(ASM_FLAGS) src/bios/boot.asm -o $(BIOS_IMAGE)
 	@# Expandir a tamaño exacto de un Floppy estándar de 1.44 MB
