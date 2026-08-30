@@ -1,13 +1,13 @@
 ; ==============================================================================
-; src/uefi/main.asm - Aplicación UEFI Booteable en x86_64
-; Tarea 1: Reloj/Cronómetro con Alarma (Paso 1: Bienvenida Institucional)
+; src/uefi/main.asm - Aplicación y Dashboard UEFI en x86_64
+; Tarea 1: Reloj/Cronómetro con Alarma (CE4303 - Sistemas Operativos)
 ; ==============================================================================
 
 default rel
 bits 64
 
 ; ------------------------------------------------------------------------------
-; Offsets en EFI_SYSTEM_TABLE (Arquitectura x86_64 de 64 bits)
+; Offsets en EFI_SYSTEM_TABLE (64 bits)
 ; ------------------------------------------------------------------------------
 %define OFFSET_CONIN                0x30        ; SystemTable -> ConIn
 %define OFFSET_CONOUT               0x40        ; SystemTable -> ConOut
@@ -15,51 +15,37 @@ bits 64
 %define OFFSET_BOOT_SERVICES        0x60        ; SystemTable -> BootServices
 
 ; ------------------------------------------------------------------------------
-; Offsets en EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL (ConOut)
+; Inclusión de Módulos UEFI
 ; ------------------------------------------------------------------------------
-%define OFFSET_CONOUT_RESET         0x00
-%define OFFSET_CONOUT_OUTPUT_STRING 0x08
-%define OFFSET_CONOUT_SET_ATTRIBUTE 0x28
-%define OFFSET_CONOUT_CLEAR_SCREEN  0x30
-%define OFFSET_CONOUT_SET_CURSOR    0x38
-%define OFFSET_CONOUT_ENABLE_CURSOR 0x40
-
-; ------------------------------------------------------------------------------
-; Offsets en EFI_SIMPLE_TEXT_INPUT_PROTOCOL (ConIn)
-; ------------------------------------------------------------------------------
-%define OFFSET_CONIN_RESET          0x00
-%define OFFSET_CONIN_READ_KEY       0x08
-%define OFFSET_CONIN_WAIT_FOR_KEY   0x10
-
-; Atributos de color para ConOut->SetAttribute
-%define COLOR_WHITE_ON_BLACK        0x0F
-%define COLOR_YELLOW_ON_BLACK       0x0E
-%define COLOR_CYAN_ON_BLACK         0x0B
-%define COLOR_WHITE_ON_BLUE         0x1F
+%include "src/uefi/screen.asm"                  ; Funciones de pantalla y colores
+%include "src/uefi/input.asm"                   ; Manejo de teclado y retardos
+%include "src/uefi/rtc.asm"                     ; Lectura de hora RTC y formateo
 
 section .text
 global efi_main
 
 ; ==============================================================================
 ; Punto de Entrada UEFI (efi_main)
-; Argumentos según Microsoft x64 Fastcall ABI:
-;   RCX = EFI_HANDLE ImageHandle
-;   RDX = EFI_SYSTEM_TABLE *SystemTable
 ; ==============================================================================
 efi_main:
-    ; Reserva de shadow space y alineación a 16 bytes (RSP % 16 == 0)
+    ; Reserva de shadow space y alineación de pila (RSP % 16 == 0)
     sub rsp, 40
 
-    ; Guardar punteros de la arquitectura UEFI
+    ; Guardar punteros fundamentales entregados por el firmware UEFI
     mov [ImageHandle], rcx
     mov [SystemTable], rdx
 
-    ; Obtener punteros a ConOut y ConIn desde SystemTable
     mov rax, [rdx + OFFSET_CONOUT]
     mov [ConOut], rax
 
     mov rax, [rdx + OFFSET_CONIN]
     mov [ConIn], rax
+
+    mov rax, [rdx + OFFSET_RUNTIME_SERVICES]
+    mov [RuntimeServices], rax
+
+    mov rax, [rdx + OFFSET_BOOT_SERVICES]
+    mov [BootServices], rax
 
     ; 1. Limpiar pantalla y ocultar cursor
     call uefi_clear_screen
@@ -69,62 +55,72 @@ efi_main:
     call show_welcome_screen
 
     ; 3. Esperar confirmación del usuario (tecla ENTER)
-    call wait_for_enter_key
+    call uefi_wait_enter
 
-    ; 4. Mostrar confirmación de acceso al sistema
-    call show_access_granted
+    ; 4. Dibujar el marco del Dashboard principal
+    call draw_dashboard_ui
 
-    ; 5. Bucle de finalización o pausa antes de salir
-.loop_wait_exit:
-    ; Esperar cualquier tecla para salir limpiamente o continuar
-    call wait_any_key
+    ; 5. Iniciar bucle principal de actualización
+    call main_loop
 
-    ; Restaurar atributos normales y limpiar antes de salir
+    ; 6. Finalización limpia del programa
+    call uefi_clear_screen
+    mov rdx, 25                         ; Columna 25
+    mov r8, 10                          ; Fila 10
+    call uefi_set_cursor
     mov rdx, COLOR_WHITE_ON_BLACK
     call uefi_set_color
+    lea rdx, [msg_exit]
+    call uefi_print_string
+
+    ; Pausa de 2 segundos antes de retornar
+    mov rcx, 2000000                    ; 2,000,000 microsegundos = 2 segundos
+    call uefi_stall
+
+    call uefi_show_cursor
     call uefi_clear_screen
 
-    ; Liberar espacio de pila y retornar EFI_SUCCESS (0)
+    ; Retornar EFI_SUCCESS (0) al firmware
     add rsp, 40
-    xor rax, rax                        ; RAX = EFI_SUCCESS (0)
+    xor rax, rax
     ret
 
 ; ==============================================================================
-; show_welcome_screen: Dibuja la pantalla inicial con datos del TEC
+; show_welcome_screen: Pantalla institucional con datos del TEC
 ; ==============================================================================
 show_welcome_screen:
     sub rsp, 40
 
-    ; Línea 1: Separador superior
-    mov rdx, 12                         ; Columna 12
-    mov r8, 4                           ; Fila 4
+    ; Separador superior (Fila 4, Columna 12)
+    mov rdx, 12
+    mov r8, 4
     call uefi_set_cursor
     mov rdx, COLOR_CYAN_ON_BLACK
     call uefi_set_color
     lea rdx, [msg_line1]
     call uefi_print_string
 
-    ; Línea 2: Nombre de la Institución
-    mov rdx, 16                         ; Columna 16
-    mov r8, 6                           ; Fila 6
+    ; Institución (Fila 6, Columna 16)
+    mov rdx, 16
+    mov r8, 6
     call uefi_set_cursor
     mov rdx, COLOR_WHITE_ON_BLACK
     call uefi_set_color
     lea rdx, [msg_line2]
     call uefi_print_string
 
-    ; Línea 3: Tarea y Modo UEFI
-    mov rdx, 14                         ; Columna 14
-    mov r8, 8                           ; Fila 8
+    ; Título (Fila 8, Columna 14)
+    mov rdx, 14
+    mov r8, 8
     call uefi_set_cursor
     mov rdx, COLOR_YELLOW_ON_BLACK
     call uefi_set_color
     lea rdx, [msg_line3]
     call uefi_print_string
 
-    ; Línea 4: Prompt para continuar
-    mov rdx, 14                         ; Columna 14
-    mov r8, 14                          ; Fila 14
+    ; Prompt de confirmación (Fila 14, Columna 14)
+    mov rdx, 14
+    mov r8, 14
     call uefi_set_cursor
     mov rdx, COLOR_WHITE_ON_BLACK
     call uefi_set_color
@@ -135,128 +131,91 @@ show_welcome_screen:
     ret
 
 ; ==============================================================================
-; show_access_granted: Muestra confirmación al pulsar ENTER
+; draw_dashboard_ui: Dibuja el marco y las etiquetas estáticas del Dashboard
 ; ==============================================================================
-show_access_granted:
+draw_dashboard_ui:
     sub rsp, 40
 
     call uefi_clear_screen
 
-    mov rdx, 16                         ; Columna 16
-    mov r8, 10                          ; Fila 10
+    ; Título del Dashboard (Fila 1, Columna 2)
+    mov rdx, 2
+    mov r8, 1
     call uefi_set_cursor
     mov rdx, COLOR_CYAN_ON_BLACK
     call uefi_set_color
-    lea rdx, [msg_granted]
+    lea rdx, [msg_dash_title]
     call uefi_print_string
 
-    mov rdx, 14                         ; Columna 14
-    mov r8, 14                          ; Fila 14
+    ; Separador (Fila 2, Columna 2)
+    mov rdx, 2
+    mov r8, 2
     call uefi_set_cursor
     mov rdx, COLOR_WHITE_ON_BLACK
     call uefi_set_color
-    lea rdx, [msg_exit_prompt]
+    lea rdx, [msg_separator]
+    call uefi_print_string
+
+    ; Etiqueta de Modo (Fila 5, Columna 22)
+    mov rdx, 22
+    mov r8, 5
+    call uefi_set_cursor
+    mov rdx, COLOR_WHITE_ON_BLACK
+    call uefi_set_color
+    lea rdx, [msg_mode_clock]
+    call uefi_print_string
+
+    ; Ayuda de Controles (Fila 22, Columna 2)
+    mov rdx, 2
+    mov r8, 22
+    call uefi_set_cursor
+    mov rdx, COLOR_LIGHTGRAY
+    call uefi_set_color
+    lea rdx, [msg_help]
     call uefi_print_string
 
     add rsp, 40
     ret
 
 ; ==============================================================================
-; wait_for_enter_key: Espera a que el usuario presione la tecla ENTER (0x000D)
+; main_loop: Bucle interactivo en tiempo real
 ; ==============================================================================
-wait_for_enter_key:
+main_loop:
     sub rsp, 40
 
-.poll_key:
-    mov rax, [ConIn]
-    mov rcx, rax                        ; RCX = ConIn (This)
-    lea rdx, [key_data]                 ; RDX = &EFI_INPUT_KEY
-    call [rax + OFFSET_CONIN_READ_KEY]
+.refresh:
+    ; 1. Formatear la hora actual en time_buffer
+    call uefi_format_time_string
 
-    ; Si RAX == 0 (EFI_SUCCESS), se leyó una tecla
+    ; 2. Posicionar cursor en la zona central de tiempo (Fila 8, Columna 36)
+    mov rdx, 36                         ; Columna 36
+    mov r8, 8                           ; Fila 8
+    call uefi_set_cursor
+
+    ; 3. Imprimir hora actual en color amarillo brillante
+    mov rdx, COLOR_YELLOW_ON_BLACK
+    call uefi_set_color
+    lea rdx, [time_buffer]
+    call uefi_print_string
+
+    ; 4. Comprobar si el usuario presionó una tecla (sin bloqueo)
+    call uefi_check_key
     test rax, rax
-    jnz .poll_key                       ; Si no hay tecla lista, seguir esperando
+    jnz .delay_and_repeat               ; Si no hay tecla, pasar al retardo
 
-    ; Verificar si es la tecla ENTER (UnicodeChar == 0x000D o 0x000A)
-    movzx eax, word [key_data + 2]      ; UnicodeChar está en offset 2
-    cmp ax, 0x000D
-    je .done
-    cmp ax, 0x000A
-    je .done
-    jmp .poll_key                       ; Si no es ENTER, seguir esperando
+    ; 5. Procesar tecla presionada
+    cmp al, 'q'
+    je .exit
+    cmp al, 'Q'
+    je .exit
 
-.done:
-    add rsp, 40
-    ret
+.delay_and_repeat:
+    ; Pausa de 50 ms (50,000 microsegundos) para no saturar CPU y refrescar fluido
+    mov rcx, 50000
+    call uefi_stall
+    jmp .refresh
 
-; ==============================================================================
-; wait_any_key: Espera cualquier tecla del usuario
-; ==============================================================================
-wait_any_key:
-    sub rsp, 40
-
-.poll_any:
-    mov rax, [ConIn]
-    mov rcx, rax
-    lea rdx, [key_data]
-    call [rax + OFFSET_CONIN_READ_KEY]
-    test rax, rax
-    jnz .poll_any
-
-    add rsp, 40
-    ret
-
-; ==============================================================================
-; Funciones Auxiliares de Interfaz UEFI
-; ==============================================================================
-
-; Limpiar Pantalla
-uefi_clear_screen:
-    sub rsp, 40
-    mov rax, [ConOut]
-    mov rcx, rax                        ; RCX = ConOut (This)
-    call [rax + OFFSET_CONOUT_CLEAR_SCREEN]
-    add rsp, 40
-    ret
-
-; Ocultar Cursor
-uefi_hide_cursor:
-    sub rsp, 40
-    mov rax, [ConOut]
-    mov rcx, rax                        ; RCX = ConOut (This)
-    xor rdx, rdx                        ; RDX = 0 (Visible = FALSE)
-    call [rax + OFFSET_CONOUT_ENABLE_CURSOR]
-    add rsp, 40
-    ret
-
-; Posicionar Cursor (RDX = Columna, R8 = Fila)
-uefi_set_cursor:
-    sub rsp, 40
-    mov rax, [ConOut]
-    mov rcx, rax                        ; RCX = ConOut (This)
-    ; RDX ya contiene Column
-    ; R8 ya contiene Row
-    call [rax + OFFSET_CONOUT_SET_CURSOR]
-    add rsp, 40
-    ret
-
-; Establecer Color de Texto y Fondo (RDX = Atributo)
-uefi_set_color:
-    sub rsp, 40
-    mov rax, [ConOut]
-    mov rcx, rax                        ; RCX = ConOut (This)
-    ; RDX contiene el atributo de color
-    call [rax + OFFSET_CONOUT_SET_ATTRIBUTE]
-    add rsp, 40
-    ret
-
-; Imprimir Cadena UTF-16 (RDX = Puntero a cadena terminada en 0x0000)
-uefi_print_string:
-    sub rsp, 40
-    mov rax, [ConOut]
-    mov rcx, rax                        ; RCX = ConOut (This)
-    ; RDX contiene puntero a la cadena UTF-16
-    call [rax + OFFSET_CONOUT_OUTPUT_STRING]
+.exit:
     add rsp, 40
     ret
 
@@ -265,20 +224,16 @@ uefi_print_string:
 ; ==============================================================================
 section .data
 
-; Punteros UEFI globales
-ImageHandle dq 0
-SystemTable dq 0
-ConOut      dq 0
-ConIn       dq 0
-
-; Estructura EFI_INPUT_KEY (ScanCode: 2 bytes, UnicodeChar: 2 bytes)
+; Punteros globales UEFI
 align 8
-key_data:
-    dw 0                                ; ScanCode
-    dw 0                                ; UnicodeChar
-    dd 0                                ; Padding a 8 bytes
+ImageHandle     dq 0
+SystemTable     dq 0
+ConOut          dq 0
+ConIn           dq 0
+RuntimeServices dq 0
+BootServices    dq 0
 
-; Cadenas de texto en formato UTF-16LE / UCS-2 (terminadas en 0x0000)
+; Mensajes de bienvenida en formato UTF-16
 msg_line1:
     dw __utf16__('======================================================='), 13, 10, 0
 msg_line2:
@@ -288,7 +243,14 @@ msg_line3:
 msg_prompt:
     dw __utf16__('[ Presione ENTER para ingresar al modo interactivo ]'), 13, 10, 0
 
-msg_granted:
-    dw __utf16__('[+] SISTEMA UEFI INICIALIZADO CORRECTAMENTE'), 13, 10, 0
-msg_exit_prompt:
-    dw __utf16__('[ Presione cualquier tecla para salir/finalizar ]'), 13, 10, 0
+; Mensajes del Dashboard en formato UTF-16
+msg_dash_title:
+    dw __utf16__('CE4303 - SISTEMA EMBEBIDO BOOTEABLE (MODO UEFI x86_64)'), 13, 10, 0
+msg_separator:
+    dw __utf16__('----------------------------------------------------------------------------'), 13, 10, 0
+msg_mode_clock:
+    dw __utf16__('[ MODO ACTUAL: RELOJ EN TIEMPO REAL ]'), 13, 10, 0
+msg_help:
+    dw __utf16__(' [Q] Salir del Sistema'), 13, 10, 0
+msg_exit:
+    dw __utf16__('Sistema Finalizado con Exito.'), 13, 10, 0

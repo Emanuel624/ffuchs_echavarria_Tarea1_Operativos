@@ -12,7 +12,7 @@ BIN_DIR = bin
 BIOS_IMAGE = $(BIN_DIR)/bios_clock.img
 
 # Archivos UEFI
-UEFI_SRC = src/uefi/main.asm
+UEFI_SOURCES = src/uefi/main.asm src/uefi/screen.asm src/uefi/input.asm src/uefi/rtc.asm
 UEFI_OBJ = $(BIN_DIR)/uefi_main.obj
 UEFI_EFI = $(BIN_DIR)/BOOTX64.EFI
 UEFI_IMAGE = $(BIN_DIR)/uefi_clock.img
@@ -44,9 +44,9 @@ run-bios: $(BIOS_IMAGE)
 # ------------------------------------------------------------------------------
 uefi: $(UEFI_IMAGE)
 
-$(UEFI_OBJ): $(UEFI_SRC)
+$(UEFI_OBJ): $(UEFI_SOURCES)
 	@mkdir -p $(BIN_DIR)
-	$(ASM) -f win64 $(UEFI_SRC) -o $(UEFI_OBJ)
+	$(ASM) -f win64 src/uefi/main.asm -o $(UEFI_OBJ)
 
 $(UEFI_EFI): $(UEFI_OBJ)
 	$(LD) -m i386pep --oformat pei-x86-64 --subsystem 10 -e efi_main $(UEFI_OBJ) -o $(UEFI_EFI)
@@ -56,7 +56,7 @@ $(UEFI_IMAGE): $(UEFI_EFI) scripts/make_uefi_img.py
 	$(PYTHON) scripts/make_uefi_img.py $(UEFI_EFI) $(UEFI_IMAGE)
 
 run-uefi: $(UEFI_IMAGE)
-	env -u LD_LIBRARY_PATH -u LD_PRELOAD qemu-system-x86_64 -bios $(OVMF_BIOS) -drive file=$(UEFI_IMAGE),format=raw -net none
+	env -u LD_LIBRARY_PATH -u LD_PRELOAD qemu-system-x86_64 -bios $(OVMF_BIOS) -drive file=$(UEFI_IMAGE),format=raw -rtc base=localtime -net none
 
 # ------------------------------------------------------------------------------
 # Limpieza
