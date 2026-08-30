@@ -20,6 +20,7 @@ bits 64
 %include "src/uefi/screen.asm"                  ; Funciones de pantalla y colores
 %include "src/uefi/input.asm"                   ; Manejo de teclado y retardos
 %include "src/uefi/rtc.asm"                     ; Lectura de hora RTC y formateo
+%include "src/uefi/chrono.asm"                  ; Lógica de cronómetro independiente
 
 section .text
 global efi_main
@@ -156,15 +157,6 @@ draw_dashboard_ui:
     lea rdx, [msg_separator]
     call uefi_print_string
 
-    ; Etiqueta de Modo (Fila 5, Columna 22)
-    mov rdx, 22
-    mov r8, 5
-    call uefi_set_cursor
-    mov rdx, COLOR_WHITE_ON_BLACK
-    call uefi_set_color
-    lea rdx, [msg_mode_clock]
-    call uefi_print_string
-
     ; Ayuda de Controles (Fila 22, Columna 2)
     mov rdx, 2
     mov r8, 22
@@ -172,6 +164,45 @@ draw_dashboard_ui:
     mov rdx, COLOR_LIGHTGRAY
     call uefi_set_color
     lea rdx, [msg_help]
+    call uefi_print_string
+
+    ; Dibujar la etiqueta del modo inicial
+    call draw_mode_label
+
+    add rsp, 40
+    ret
+
+; ==============================================================================
+; draw_mode_label: Dibuja la etiqueta según current_mode (0=Reloj, 1=Cronómetro)
+; ==============================================================================
+draw_mode_label:
+    sub rsp, 40
+
+    ; Posicionar en zona de etiqueta (Fila 5, Columna 22)
+    mov rdx, 22
+    mov r8, 5
+    call uefi_set_cursor
+    mov rdx, COLOR_WHITE_ON_BLACK
+    call uefi_set_color
+
+    cmp byte [current_mode], 0
+    je .draw_clock
+
+.draw_chrono:
+    lea rdx, [msg_mode_chrono]
+    call uefi_print_string
+    jmp .clear_time_line
+
+.draw_clock:
+    lea rdx, [msg_mode_clock]
+    call uefi_print_string
+
+.clear_time_line:
+    ; Limpiar la línea central para evitar caracteres residuales
+    mov rdx, 34
+    mov r8, 8
+    call uefi_set_cursor
+    lea rdx, [msg_clear_time]
     call uefi_print_string
 
     add rsp, 40
@@ -184,34 +215,83 @@ main_loop:
     sub rsp, 40
 
 .refresh:
-    ; 1. Formatear la hora actual en time_buffer
-    call uefi_format_time_string
+    ; 1. Actualizar siempre la hora del RTC
+    call uefi_get_time
 
-    ; 2. Posicionar cursor en la zona central de tiempo (Fila 8, Columna 36)
-    mov rdx, 36                         ; Columna 36
+    ; 2. Actualizar el cronómetro si está corriendo (independiente del modo activo)
+    call chrono_update
+
+    ; 3. Renderizar según el modo actual
+    cmp byte [current_mode], 0
+    je .render_clock
+
+.render_chrono:
+    call chrono_format_string
+    mov rdx, 37                         ; Columna 37 para "MM:SS"
     mov r8, 8                           ; Fila 8
     call uefi_set_cursor
+    mov rdx, COLOR_GREEN_ON_BLACK
+    call uefi_set_color
+    lea rdx, [chrono_buffer]
+    call uefi_print_string
+    jmp .check_input
 
-    ; 3. Imprimir hora actual en color amarillo brillante
+.render_clock:
+    call uefi_format_time_string
+    mov rdx, 36                         ; Columna 36 para "HH:MM:SS"
+    mov r8, 8                           ; Fila 8
+    call uefi_set_cursor
     mov rdx, COLOR_YELLOW_ON_BLACK
     call uefi_set_color
     lea rdx, [time_buffer]
     call uefi_print_string
 
+.check_input:
     ; 4. Comprobar si el usuario presionó una tecla (sin bloqueo)
     call uefi_check_key
     jz .delay_and_repeat                ; Si ZF = 1 (no hay tecla), pasar al retardo
 
-    ; 5. Si hay tecla (ZF = 0), procesar tecla
+    ; 5. Procesar tecla
     cmp al, 'q'
     je .exit
     cmp al, 'Q'
     je .exit
 
+    cmp al, 'm'
+    je .toggle_mode
+    cmp al, 'M'
+    je .toggle_mode
+
+    ; Teclas exclusivas del Cronómetro (o globales)
+    cmp al, 's'
+    je .toggle_chrono
+    cmp al, 'S'
+    je .toggle_chrono
+
+    cmp al, 'r'
+    je .reset_chrono
+    cmp al, 'R'
+    je .reset_chrono
+
 .delay_and_repeat:
-    ; Pausa de 50 ms (50,000 microsegundos) para no saturar CPU y refrescar fluido
+    ; Pausa de 50 ms (50,000 microsegundos) para refresco suave
     mov rcx, 50000
     call uefi_stall
+    jmp .refresh
+
+; --- Controladores de eventos de teclado ---
+
+.toggle_mode:
+    xor byte [current_mode], 1          ; Alterna entre 0 (Reloj) y 1 (Cronómetro)
+    call draw_mode_label
+    jmp .refresh
+
+.toggle_chrono:
+    call chrono_start_stop              ; Inicia o pausa el conteo
+    jmp .refresh
+
+.reset_chrono:
+    call chrono_reset                   ; Reinicia cronómetro a 00:00
     jmp .refresh
 
 .exit:
@@ -232,6 +312,9 @@ ConIn           dq 0
 RuntimeServices dq 0
 BootServices    dq 0
 
+; Variable de modo actual
+current_mode    db 0                    ; 0 = Reloj, 1 = Cronómetro
+
 ; Mensajes de bienvenida en formato UTF-16
 msg_line1:
     dw __utf16__('======================================================='), 13, 10, 0
@@ -247,9 +330,15 @@ msg_dash_title:
     dw __utf16__('CE4303 - SISTEMA EMBEBIDO BOOTEABLE (MODO UEFI x86_64)'), 13, 10, 0
 msg_separator:
     dw __utf16__('----------------------------------------------------------------------------'), 13, 10, 0
+
 msg_mode_clock:
-    dw __utf16__('[ MODO ACTUAL: RELOJ EN TIEMPO REAL ]'), 13, 10, 0
+    dw __utf16__('[ MODO ACTUAL: RELOJ EN TIEMPO REAL ]   '), 13, 10, 0
+msg_mode_chrono:
+    dw __utf16__('[ MODO ACTUAL: CRONOMETRO ]             '), 13, 10, 0
+msg_clear_time:
+    dw __utf16__('                  '), 13, 10, 0
+
 msg_help:
-    dw __utf16__(' [Q] Salir del Sistema'), 13, 10, 0
+    dw __utf16__(' [M] Modo | [S] Start/Stop | [R] Reset | [Q] Salir'), 13, 10, 0
 msg_exit:
     dw __utf16__('Sistema Finalizado con Exito.'), 13, 10, 0
