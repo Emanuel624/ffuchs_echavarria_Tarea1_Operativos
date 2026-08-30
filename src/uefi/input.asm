@@ -18,9 +18,10 @@ bits 64
 ; ------------------------------------------------------------------------------
 ; uefi_check_key: Consulta no bloqueante de tecla presionada en el buffer
 ; Salida:
-;   RAX = 0 (EFI_SUCCESS) si hay tecla; RAX != 0 si no hay tecla
-;   AL = Carácter ASCII/Unicode de la tecla (si RAX == 0)
-;   DX = ScanCode de la tecla (si RAX == 0)
+;   ZF = 1 (Zero Flag = 1): NO hay tecla presionada en el buffer.
+;   ZF = 0 (Zero Flag = 0): SÍ hay tecla presionada.
+;   AL = Carácter ASCII/Unicode de la tecla presionada.
+;   DX = ScanCode de la tecla (para teclas especiales como flechas/F1-F12).
 ; ------------------------------------------------------------------------------
 uefi_check_key:
     sub rsp, 40
@@ -30,22 +31,23 @@ uefi_check_key:
     lea rdx, [uefi_key_data]            ; RDX = &EFI_INPUT_KEY
     call [rax + OFFSET_CONIN_READ_KEY]
 
-    ; Si RAX != 0 (no hay tecla lista), retornar
+    ; Si RAX != 0 (EFI_NOT_READY u otro error), no hay tecla lista
     test rax, rax
     jnz .no_key
 
-    ; Si RAX == 0, se leyó una tecla exitosamente
+    ; Si se leyó una tecla exitosamente:
     movzx edx, word [uefi_key_data + 0] ; DX = ScanCode
-    movzx eax, word [uefi_key_data + 2] ; AL/AX = UnicodeChar
-    ; Establecer RAX = 0 para indicar éxito en lectura
-    push rax                            ; Guardar carácter leído
-    xor rax, rax                        ; RAX = 0 (EFI_SUCCESS)
-    pop r8                              ; R8 = carácter
-    mov al, r8b                         ; AL = carácter ASCII
+    movzx eax, word [uefi_key_data + 2] ; AL = UnicodeChar (ASCII)
+
+    ; Asegurar que ZF = 0 (indicando que hay tecla válida)
+    or rsp, 0                           ; No modifica registros, pero asegura ZF=0 (RSP nunca es 0)
+    cmp al, -1                          ; AL nunca es -1, asegura ZF=0
     jmp .done
 
 .no_key:
-    ; RAX ya contiene código de error (ej: EFI_NOT_READY)
+    xor al, al
+    cmp al, 0                           ; Establece ZF = 1 (indicando que no hay tecla)
+
 .done:
     add rsp, 40
     ret
@@ -97,4 +99,3 @@ uefi_key_data:
     dw 0                                ; ScanCode (2 bytes)
     dw 0                                ; UnicodeChar (2 bytes)
     dd 0                                ; Padding a 8 bytes
-

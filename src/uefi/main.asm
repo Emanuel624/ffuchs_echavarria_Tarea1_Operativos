@@ -200,10 +200,9 @@ main_loop:
 
     ; 4. Comprobar si el usuario presionó una tecla (sin bloqueo)
     call uefi_check_key
-    test rax, rax
-    jnz .delay_and_repeat               ; Si no hay tecla, pasar al retardo
+    jz .delay_and_repeat                ; Si ZF = 1 (no hay tecla), pasar al retardo
 
-    ; 5. Procesar tecla presionada
+    ; 5. Si hay tecla (ZF = 0), procesar tecla
     cmp al, 'q'
     je .exit
     cmp al, 'Q'
