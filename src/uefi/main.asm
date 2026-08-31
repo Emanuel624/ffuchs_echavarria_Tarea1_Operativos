@@ -454,7 +454,7 @@ msg_prompt:
 
 ; Mensajes del Dashboard en formato UTF-16
 msg_dash_title:
-    dw __utf16__('CE4303 - SISTEMA EMBEBIDO BOOTEABLE (MODO UEFI x86_64)'), 13, 10, 0
+    dw __utf16__('CE4303 - TAREA 1 (MODO UEFI x86_64)'), 13, 10, 0
 msg_separator:
     dw __utf16__('----------------------------------------------------------------------------'), 13, 10, 0
 

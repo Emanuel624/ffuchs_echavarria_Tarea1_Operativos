@@ -13,6 +13,7 @@ BIOS_IMAGE = $(BIN_DIR)/bios_clock.img
 
 # Archivos UEFI
 UEFI_SOURCES = src/uefi/main.asm src/uefi/screen.asm src/uefi/input.asm src/uefi/rtc.asm src/uefi/chrono.asm src/uefi/alarm.asm
+UEFI_OBJ = $(BIN_DIR)/uefi_main.obj
 UEFI_EFI = $(BIN_DIR)/BOOTX64.EFI
 UEFI_IMAGE = $(BIN_DIR)/uefi_clock.img
 
@@ -36,7 +37,7 @@ $(BIOS_IMAGE): src/bios/boot.asm src/bios/main.asm src/bios/screen.asm src/bios/
 	@echo "==> [BIOS] Imagen generada: $(BIOS_IMAGE)"
 
 run-bios: $(BIOS_IMAGE)
-	env -u LD_LIBRARY_PATH -u LD_PRELOAD qemu-system-x86_64 -fda $(BIOS_IMAGE) -rtc base=localtime
+	env -u LD_LIBRARY_PATH -u LD_PRELOAD qemu-system-x86_64 -drive file=$(BIOS_IMAGE),format=raw,if=floppy -rtc base=localtime
 
 # ------------------------------------------------------------------------------
 # Compilación UEFI (x86_64 PE32+)
