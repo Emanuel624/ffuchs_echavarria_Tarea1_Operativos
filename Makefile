@@ -12,8 +12,7 @@ BIN_DIR = bin
 BIOS_IMAGE = $(BIN_DIR)/bios_clock.img
 
 # Archivos UEFI
-UEFI_SOURCES = src/uefi/main.asm src/uefi/screen.asm src/uefi/input.asm src/uefi/rtc.asm src/uefi/chrono.asm
-UEFI_OBJ = $(BIN_DIR)/uefi_main.obj
+UEFI_SOURCES = src/uefi/main.asm src/uefi/screen.asm src/uefi/input.asm src/uefi/rtc.asm src/uefi/chrono.asm src/uefi/alarm.asm
 UEFI_EFI = $(BIN_DIR)/BOOTX64.EFI
 UEFI_IMAGE = $(BIN_DIR)/uefi_clock.img
 
