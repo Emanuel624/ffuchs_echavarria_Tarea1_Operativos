@@ -1,42 +1,51 @@
 ; ==============================================================================
-; src/uefi/main.asm - Aplicación y Dashboard UEFI Completo en x86_64
-; Tarea 1: Reloj/Cronómetro con Alarma (CE4303 - Sistemas Operativos)
+; src/uefi/main.asm - Tarea Booteable UEFI en x86_64
+; Tarea 1: Reloj/Cronómetro con Alarma (CE4303 - Principios de Sistemas Operativos)
+; ==============================================================================
+; Este archivo constituye el punto de entrada oficial para el estándar UEFI (64 bits).
+; Se compila como una aplicación PE32+ (BOOTX64.EFI) que arranca de forma nativa
+; desde el firmware de la placa madre sin requerir MBR ni sistema operativo previo.
 ; ==============================================================================
 
 default rel
 bits 64
 
 ; ------------------------------------------------------------------------------
-; Offsets en EFI_SYSTEM_TABLE (64 bits)
+; Offsets en EFI_SYSTEM_TABLE (Arquitectura de 64 bits = punteros de 8 bytes)
 ; ------------------------------------------------------------------------------
-%define OFFSET_CONIN                0x30        ; SystemTable -> ConIn
-%define OFFSET_CONOUT               0x40        ; SystemTable -> ConOut
-%define OFFSET_RUNTIME_SERVICES     0x58        ; SystemTable -> RuntimeServices
-%define OFFSET_BOOT_SERVICES        0x60        ; SystemTable -> BootServices
+%define OFFSET_CONIN                0x30        ; SystemTable -> ConIn (Teclado)
+%define OFFSET_CONOUT               0x40        ; SystemTable -> ConOut (Pantalla)
+%define OFFSET_RUNTIME_SERVICES     0x58        ; SystemTable -> RuntimeServices (RTC, etc.)
+%define OFFSET_BOOT_SERVICES        0x60        ; SystemTable -> BootServices (Memoria, Stall)
 
 ; ------------------------------------------------------------------------------
 ; Inclusión de Módulos UEFI
 ; ------------------------------------------------------------------------------
-%include "src/uefi/screen.asm"                  ; Funciones de pantalla y colores
-%include "src/uefi/input.asm"                   ; Manejo de teclado y retardos
-%include "src/uefi/rtc.asm"                     ; Lectura de hora RTC y formateo
-%include "src/uefi/chrono.asm"                  ; Lógica de cronómetro independiente
-%include "src/uefi/alarm.asm"                   ; Lógica de alarma y parpadeo visual
+%include "src/uefi/screen.asm"                  ; Control de pantalla, cursor y colores
+%include "src/uefi/input.asm"                   ; Teclado no bloqueante y retardos
+%include "src/uefi/rtc.asm"                     ; Reloj RTC en tiempo real y formateo
+%include "src/uefi/chrono.asm"                  ; Cronómetro independiente
+%include "src/uefi/alarm.asm"                   ; Configuración, disparo y cancelación de alarma
 
 section .text
 global efi_main
 
 ; ==============================================================================
-; Punto de Entrada UEFI (efi_main)
+; efi_main: Punto de entrada convocado directamente por el firmware UEFI
+;
+; Argumentos según Microsoft x64 Fastcall ABI:
+;   RCX = EFI_HANDLE ImageHandle        (Manejador de la imagen cargada)
+;   RDX = EFI_SYSTEM_TABLE *SystemTable (Tabla principal con servicios del firmware)
 ; ==============================================================================
 efi_main:
-    ; Reserva de shadow space y alineación de pila (RSP % 16 == 0)
+    ; Reserva de 32 bytes de Shadow Space + 8 bytes para alinear RSP a 16 bytes
     sub rsp, 40
 
-    ; Guardar punteros fundamentales entregados por el firmware UEFI
+    ; 1. Guardar punteros fundamentales entregados por el firmware
     mov [ImageHandle], rcx
     mov [SystemTable], rdx
 
+    ; Extraer punteros a los protocolos y servicios principales desde SystemTable
     mov rax, [rdx + OFFSET_CONOUT]
     mov [ConOut], rax
 
@@ -49,23 +58,23 @@ efi_main:
     mov rax, [rdx + OFFSET_BOOT_SERVICES]
     mov [BootServices], rax
 
-    ; 1. Limpiar pantalla y ocultar cursor
+    ; 2. Preparar pantalla inicial: limpiar y ocultar cursor
     call uefi_clear_screen
     call uefi_hide_cursor
 
-    ; 2. Mostrar la pantalla de bienvenida institucional
+    ; 3. Mostrar la pantalla institucional de bienvenida
     call show_welcome_screen
 
-    ; 3. Esperar confirmación del usuario (tecla ENTER)
+    ; 4. Esperar confirmación del usuario (tecla ENTER) antes de entrar al modo interactivo
     call uefi_wait_enter
 
-    ; 4. Dibujar el marco del Dashboard principal
+    ; 5. Dibujar el marco estático del Dashboard (título, separador, controles)
     call draw_dashboard_ui
 
-    ; 5. Iniciar bucle principal de actualización
+    ; 6. Iniciar el bucle interactivo principal en tiempo real
     call main_loop
 
-    ; 6. Finalización limpia del programa
+    ; 7. Finalización limpia del programa
     call uefi_clear_screen
     mov rdx, 25                         ; Columna 25
     mov r8, 10                          ; Fila 10
@@ -75,25 +84,25 @@ efi_main:
     lea rdx, [msg_exit]
     call uefi_print_string
 
-    ; Pausa de 2 segundos antes de retornar
-    mov rcx, 2000000                    ; 2,000,000 microsegundos = 2 segundos
+    ; Pausa de 2 segundos antes de transferir el control de regreso al firmware
+    mov rcx, 2000000                    ; 2,000,000 µs = 2 segundos
     call uefi_stall
 
     call uefi_show_cursor
     call uefi_clear_screen
 
-    ; Retornar EFI_SUCCESS (0) al firmware
+    ; Retornar EFI_SUCCESS (0)
     add rsp, 40
     xor rax, rax
     ret
 
 ; ==============================================================================
-; show_welcome_screen: Pantalla institucional con datos del TEC
+; show_welcome_screen: Dibuja la pantalla inicial institucional
 ; ==============================================================================
 show_welcome_screen:
     sub rsp, 40
 
-    ; Separador superior (Fila 4, Columna 12)
+    ; Separador superior decorativo (Fila 4, Columna 12)
     mov rdx, 12
     mov r8, 4
     call uefi_set_cursor
@@ -102,7 +111,7 @@ show_welcome_screen:
     lea rdx, [msg_line1]
     call uefi_print_string
 
-    ; Institución (Fila 6, Columna 16)
+    ; Nombre de la institución (Fila 6, Columna 16)
     mov rdx, 16
     mov r8, 6
     call uefi_set_cursor
@@ -111,7 +120,7 @@ show_welcome_screen:
     lea rdx, [msg_line2]
     call uefi_print_string
 
-    ; Título (Fila 8, Columna 14)
+    ; Título del proyecto (Fila 8, Columna 14)
     mov rdx, 14
     mov r8, 8
     call uefi_set_cursor
@@ -120,7 +129,7 @@ show_welcome_screen:
     lea rdx, [msg_line3]
     call uefi_print_string
 
-    ; Prompt de confirmación (Fila 14, Columna 14)
+    ; Mensaje de solicitud de confirmación (Fila 14, Columna 14)
     mov rdx, 14
     mov r8, 14
     call uefi_set_cursor
@@ -133,14 +142,14 @@ show_welcome_screen:
     ret
 
 ; ==============================================================================
-; draw_dashboard_ui: Dibuja el marco y las etiquetas estáticas del Dashboard
+; draw_dashboard_ui: Dibuja el marco estático y las leyendas del Dashboard
 ; ==============================================================================
 draw_dashboard_ui:
     sub rsp, 40
 
     call uefi_clear_screen
 
-    ; Título del Dashboard (Fila 1, Columna 2)
+    ; Título superior del sistema (Fila 1, Columna 2)
     mov rdx, 2
     mov r8, 1
     call uefi_set_cursor
@@ -149,7 +158,7 @@ draw_dashboard_ui:
     lea rdx, [msg_dash_title]
     call uefi_print_string
 
-    ; Separador (Fila 2, Columna 2)
+    ; Línea separadora (Fila 2, Columna 2)
     mov rdx, 2
     mov r8, 2
     call uefi_set_cursor
@@ -158,7 +167,7 @@ draw_dashboard_ui:
     lea rdx, [msg_separator]
     call uefi_print_string
 
-    ; Ayuda de Controles (Fila 22, Columna 2)
+    ; Barra de ayuda con los controles interactivos (Fila 22, Columna 2)
     mov rdx, 2
     mov r8, 22
     call uefi_set_cursor
@@ -167,19 +176,20 @@ draw_dashboard_ui:
     lea rdx, [msg_help]
     call uefi_print_string
 
-    ; Dibujar la etiqueta del modo inicial
+    ; Dibujar la etiqueta correspondiente al modo inicial (Reloj)
     call draw_mode_label
 
     add rsp, 40
     ret
 
 ; ==============================================================================
-; draw_mode_label: Dibuja la etiqueta según current_mode (0=Reloj, 1=Crono, 2=Alarma)
+; draw_mode_label: Actualiza la etiqueta de modo y limpia la línea de tiempo
+; current_mode: 0 = Modo Reloj, 1 = Modo Cronómetro, 2 = Modo Configurar Alarma
 ; ==============================================================================
 draw_mode_label:
     sub rsp, 40
 
-    ; Posicionar en zona de etiqueta (Fila 5, Columna 22)
+    ; Posicionar cursor en la zona de etiqueta (Fila 5, Columna 22)
     mov rdx, 22
     mov r8, 5
     call uefi_set_cursor
@@ -206,7 +216,7 @@ draw_mode_label:
     call uefi_print_string
 
 .clear_time_line:
-    ; Limpiar la línea central para evitar residuos de otros modos
+    ; Limpiar la línea central para evitar caracteres sobrantes entre "HH:MM:SS" y "MM:SS"
     mov rdx, 34
     mov r8, 8
     call uefi_set_cursor
@@ -217,22 +227,23 @@ draw_mode_label:
     ret
 
 ; ==============================================================================
-; main_loop: Bucle interactivo en tiempo real
+; main_loop: Bucle interactivo
+; Coordina la actualización de periféricos, timers y entrada de teclado
 ; ==============================================================================
 main_loop:
     sub rsp, 40
 
 .refresh:
-    ; 1. Actualizar siempre la hora del RTC
+    ; 1. Actualizar siempre la hora actual del RTC desde el hardware
     call uefi_get_time
 
-    ; 2. Actualizar el cronómetro si está corriendo (independiente del modo activo)
+    ; 2. Actualizar contadores del cronómetro si está corriendo
     call chrono_update
 
-    ; 3. Verificar si la alarma coincide con la hora actual
+    ; 3. Verificar si coincide la hora de la alarma
     call check_alarm
 
-    ; 4. Mostrar u ocultar el banner visual de alarma activa
+    ; 4. Desplegar o limpiar el banner de alerta visual de alarma
     mov rdx, 27                         ; Columna 27
     mov r8, 12                          ; Fila 12
     call uefi_set_cursor
@@ -240,7 +251,7 @@ main_loop:
     cmp byte [alarm_triggered], 1
     jne .clear_alarm_banner
 
-    ; Efecto de parpadeo: alternar color según bit 3 de blink_counter (~0.4 seg)
+    ; Efecto de parpadeo: alternar colores (Rojo / Amarillo) cada ~0.4 segundos
     test byte [blink_counter], 0x08
     jz .color_blink1
 
@@ -262,14 +273,14 @@ main_loop:
     call uefi_print_string
 
 .render_modes:
-    ; 5. Renderizar según el modo actual
+    ; 5. Desplegar la información central según el modo activo
     cmp byte [current_mode], 0
     je .render_clock
     cmp byte [current_mode], 1
     je .render_chrono
 
-.render_alarm_setup:                    ; Modo 2: Configurar Alarma
-    mov rdx, 37                         ; Columna 37 para "HH:MM"
+.render_alarm_setup:                    ; Modo 2: Configurar Alarma (muestra buffer "HH:MM")
+    mov rdx, 37                         ; Columna 37
     mov r8, 8                           ; Fila 8
     call uefi_set_cursor
     mov rdx, COLOR_LIGHTCYAN
@@ -278,9 +289,9 @@ main_loop:
     call uefi_print_string
     jmp .check_input
 
-.render_chrono:                         ; Modo 1: Cronómetro
+.render_chrono:                         ; Modo 1: Cronómetro (muestra "MM:SS")
     call chrono_format_string
-    mov rdx, 37                         ; Columna 37 para "MM:SS"
+    mov rdx, 37                         ; Columna 37
     mov r8, 8                           ; Fila 8
     call uefi_set_cursor
     mov rdx, COLOR_GREEN_ON_BLACK
@@ -289,9 +300,9 @@ main_loop:
     call uefi_print_string
     jmp .check_input
 
-.render_clock:                          ; Modo 0: Reloj
+.render_clock:                          ; Modo 0: Reloj (muestra "HH:MM:SS")
     call uefi_format_time_string
-    mov rdx, 36                         ; Columna 36 para "HH:MM:SS"
+    mov rdx, 36                         ; Columna 36
     mov r8, 8                           ; Fila 8
     call uefi_set_cursor
     mov rdx, COLOR_YELLOW_ON_BLACK
@@ -300,11 +311,11 @@ main_loop:
     call uefi_print_string
 
 .check_input:
-    ; 6. Comprobar si el usuario presionó una tecla (sin bloqueo)
+    ; 6. Consulta no bloqueante de tecla presionada en el buffer
     call uefi_check_key
-    jz .delay_and_repeat                ; Si ZF = 1 (no hay tecla), pasar al retardo
+    jz .delay_and_repeat                ; Si ZF = 1 (no hay tecla), pausar y repetir ciclo
 
-    ; 7. Procesar teclas globales
+    ; 7. Despacho de comandos de teclado
     cmp al, 'q'
     je .exit
     cmp al, 'Q'
@@ -315,11 +326,11 @@ main_loop:
     cmp al, 'C'
     je .cancel_alarm_key
 
-    ; Si estamos en modo Configurar Alarma (2), procesar entrada numérica
+    ; Si estamos configurando la alarma, procesar la entrada de dígitos (0-9)
     cmp byte [current_mode], 2
     je .handle_alarm_input
 
-    ; Modos 0 y 1 (Reloj y Cronómetro)
+    ; Modos estándar (Reloj y Cronómetro)
     cmp al, 'm'
     je .toggle_mode
     cmp al, 'M'
@@ -345,23 +356,26 @@ main_loop:
     je .reset_chrono
 
 .delay_and_repeat:
-    ; Pausa de 50 ms (50,000 microsegundos) para refresco suave
+    ; Pausa de 50 ms (50,000 µs) para generar una tasa de refresco suave (~20 FPS)
     mov rcx, 50000
     call uefi_stall
     jmp .refresh
 
-; --- Controladores de eventos de teclado ---
+; ------------------------------------------------------------------------------
+; Manejadores de Eventos de Teclado
+; ------------------------------------------------------------------------------
 
 .toggle_mode:
-    xor byte [current_mode], 1          ; Alterna entre 0 (Reloj) y 1 (Cronómetro)
+    xor byte [current_mode], 1          ; Alterna el bit entre 0 (Reloj) y 1 (Cronómetro)
     call draw_mode_label
     jmp .refresh
 
 .enter_alarm_setup:
-    mov byte [current_mode], 2          ; Cambia a modo Configurar Alarma (2)
-    mov byte [alarm_input_idx], 0       ; Reinicia índice de entrada
+    mov byte [current_mode], 2          ; Activa Modo 2 (Configurar Alarma)
+    mov byte [alarm_input_idx], 0       ; Reinicia cursor de entrada
+    ; Reinicializa el buffer visual a "00:00\0" en UTF-16
     lea rdi, [alarm_input_buf]
-    mov word [rdi + 0], '0'             ; Reinicia buffer a "00:00"
+    mov word [rdi + 0], '0'
     mov word [rdi + 2], '0'
     mov word [rdi + 4], ':'
     mov word [rdi + 6], '0'
@@ -372,7 +386,7 @@ main_loop:
 
 .cancel_alarm_key:
     call cancel_alarm                   ; Desactiva alarma y silencia parpadeo
-    ; Limpiar inmediatamente el banner de alarma
+    ; Limpiar de inmediato el banner de texto de alarma
     mov rdx, 27
     mov r8, 12
     call uefi_set_cursor
@@ -381,44 +395,44 @@ main_loop:
     jmp .refresh
 
 .handle_alarm_input:
-    ; Filtrar solo caracteres numéricos ('0' - '9')
+    ; Filtrar solo dígitos válidos ('0' al '9')
     cmp al, '0'
     jl .delay_and_repeat
     cmp al, '9'
     jg .delay_and_repeat
 
-    ; Obtener índice actual (0-4)
+    ; Obtener la posición del dígito actual a rellenar (0 a 4)
     xor rbx, rbx
     mov bl, byte [alarm_input_idx]
 
-    ; Si el índice es 2, saltar el separador ':'
+    ; Si la posición es 2 (el separador ':'), saltar a la posición 3
     cmp bl, 2
     jne .save_digit
     inc bl
     inc byte [alarm_input_idx]
 
 .save_digit:
-    ; Guardar carácter UTF-16 en la posición (offset = rbx * 2) usando base RDI
+    ; Guardar el carácter UTF-16 en el buffer (offset en bytes = rbx * 2)
     lea rdi, [alarm_input_buf]
     movzx dx, al
     mov [rdi + rbx * 2], dx
     inc byte [alarm_input_idx]
 
-    ; Si ya se ingresaron los 4 dígitos (índice alcanzó 5), armar alarma
+    ; Si ya se ingresaron los 4 dígitos (índice 5 alcanzado), armar alarma
     cmp byte [alarm_input_idx], 5
     jne .delay_and_repeat
 
-    call save_alarm_from_buffer         ; Convierte cadena a enteros y arma alarma
+    call save_alarm_from_buffer         ; Convierte cadena a horas/minutos numéricos
     mov byte [current_mode], 0          ; Regresa automáticamente a Modo Reloj
     call draw_mode_label
     jmp .refresh
 
 .toggle_chrono:
-    call chrono_start_stop              ; Inicia o pausa el conteo
+    call chrono_start_stop              ; Alterna entre Iniciar y Pausar cronómetro
     jmp .refresh
 
 .reset_chrono:
-    call chrono_reset                   ; Reinicia cronómetro a 00:00
+    call chrono_reset                   ; Pone a cero los contadores del cronómetro
     jmp .refresh
 
 .exit:
@@ -430,7 +444,7 @@ main_loop:
 ; ==============================================================================
 section .data
 
-; Punteros globales UEFI
+; Punteros globales inicializados en efi_main
 align 8
 ImageHandle     dq 0
 SystemTable     dq 0
@@ -439,10 +453,10 @@ ConIn           dq 0
 RuntimeServices dq 0
 BootServices    dq 0
 
-; Variable de modo actual: 0=Reloj, 1=Cronómetro, 2=Config Alarma
+; Variable de estado: 0 = Modo Reloj, 1 = Modo Cronómetro, 2 = Modo Configurar Alarma
 current_mode    db 0
 
-; Mensajes de bienvenida en formato UTF-16
+; Cadenas de la pantalla de bienvenida institucional (UTF-16)
 msg_line1:
     dw __utf16__('======================================================='), 13, 10, 0
 msg_line2:
@@ -452,9 +466,9 @@ msg_line3:
 msg_prompt:
     dw __utf16__('[ Presione ENTER para ingresar al modo interactivo ]'), 13, 10, 0
 
-; Mensajes del Dashboard en formato UTF-16
+; Cadenas del Dashboard interactivo (UTF-16)
 msg_dash_title:
-    dw __utf16__('CE4303 - TAREA 1 (MODO UEFI x86_64)'), 13, 10, 0
+    dw __utf16__('CE4303 - TAREA 1 (UEFI x86_64)'), 13, 10, 0
 msg_separator:
     dw __utf16__('----------------------------------------------------------------------------'), 13, 10, 0
 
