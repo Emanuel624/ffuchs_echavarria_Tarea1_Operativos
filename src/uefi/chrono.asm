@@ -1,8 +1,8 @@
 ; ==============================================================================
-; src/uefi/chrono.asm - Lógica del Cronómetro Independiente en UEFI
+; src/uefi/chrono.asm - Lógica del Cronómetro 
 ; ==============================================================================
 ; Mantiene un conteo de tiempo desacoplado del reloj principal, sincronizado
-; con los cambios de segundo del RTC para asegurar exactitud.
+; con los cambios de segundo del RTC.
 ; ==============================================================================
 
 default rel
@@ -13,27 +13,26 @@ section .text
 ; ------------------------------------------------------------------------------
 ; chrono_update: Actualiza los contadores de tiempo del cronómetro
 ;
-; Estrategia:
 ;   En cada ciclo del bucle principal, se lee el segundo actual del RTC.
 ;   Cuando el segundo cambia respecto al último visto (transición de 1 segundo),
 ;   si el cronómetro está en estado "corriendo" (chrono_running == 1),
-;   se incrementan los segundos y, en cascada, los minutos al llegar a 60.
+;   se incrementan los segundos, etc.
 ; ------------------------------------------------------------------------------
 chrono_update:
     sub rsp, 40
 
-    ; Obtener el segundo actual reportado por la estructura EFI_TIME
+    ; Obtiene el segundo actual reportado por EFI_TIME
     mov al, [efi_time_data + EFI_TIME_SECOND]
 
-    ; Si es la primera ejecución, inicializar el último segundo registrado
+    ; Inicializa el ultimo segundo registrado
     cmp byte [last_rtc_sec], 0xFF
     je .sync_init
 
     ; Comprobar si ya transcurrió un segundo real
     cmp al, [last_rtc_sec]
-    je .done                            ; Si el segundo no ha cambiado, no hacer nada
+    je .done                           
 
-    ; El segundo cambió: actualizar segundo de referencia
+    ; actualizar segundo de referencia
     mov [last_rtc_sec], al
 
     ; Verificar si el cronómetro está activo (corriendo)
@@ -50,7 +49,7 @@ chrono_update:
     inc byte [chrono_m]
     cmp byte [chrono_m], 60
     jl .done
-    mov byte [chrono_m], 0              ; Reiniciar a 0 tras completar 60 minutos
+    mov byte [chrono_m], 0              
 
     jmp .done
 
@@ -62,14 +61,14 @@ chrono_update:
     ret
 
 ; ------------------------------------------------------------------------------
-; chrono_start_stop: Alterna el estado del cronómetro entre Play y Pausa
+; chrono_start_stop: Alterna entre Play y Pausa
 ; ------------------------------------------------------------------------------
 chrono_start_stop:
     sub rsp, 40
 
-    xor byte [chrono_running], 1        ; Invierte bandera: 0 -> 1 (Play), 1 -> 0 (Pausa)
+    xor byte [chrono_running], 1        ; Invierte bandera
 
-    ; Sincronizar con el segundo actual para evitar saltos inmediatos al reanudar
+    ; Sincronizar con el segundo actual 
     mov al, [efi_time_data + EFI_TIME_SECOND]
     mov [last_rtc_sec], al
 
@@ -82,7 +81,7 @@ chrono_start_stop:
 chrono_reset:
     sub rsp, 40
 
-    mov byte [chrono_running], 0        ; Detiene el cronómetro (pausado)
+    mov byte [chrono_running], 0        ; Detiene el cronómetro
     mov byte [chrono_s], 0              ; Segundos = 0
     mov byte [chrono_m], 0              ; Minutos = 0
 
@@ -95,7 +94,7 @@ chrono_reset:
 chrono_format_string:
     sub rsp, 40
 
-    ; 1. Formatear Minutos (MM)
+    ; 1. Formato Minutos (MM)
     mov al, [chrono_m]
     lea rdi, [chrono_buffer + 0]
     call bin_to_utf16_digits
@@ -103,7 +102,7 @@ chrono_format_string:
     ; Separador ':'
     mov word [chrono_buffer + 4], ':'
 
-    ; 2. Formatear Segundos (SS)
+    ; 2. Formato Segundos (SS)
     mov al, [chrono_s]
     lea rdi, [chrono_buffer + 6]
     call bin_to_utf16_digits

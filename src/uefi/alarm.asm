@@ -1,8 +1,8 @@
 ; ==============================================================================
-; src/uefi/alarm.asm - Lógica de Configuración y Disparo de Alarma en UEFI
+; src/uefi/alarm.asm - Lógica de Configuración y salto de Alarma 
 ; ==============================================================================
 ; Maneja el almacenamiento de la hora programada, la comparación con el RTC,
-; el disparo del efecto de parpadeo visual y la cancelación interactiva.
+; el disparo del efecto de parpadeo visual y la cancelación.
 ; ==============================================================================
 
 default rel
@@ -29,10 +29,9 @@ save_alarm_from_buffer:
     movzx eax, word [rsi + 2]            ; Unidades de hora en UTF-16
     sub al, '0'
     add dl, al                           ; DL = Horas totales (0-23)
-    mov [alarm_h], dl
+    mov [alarm_h], dl                    ; Guardar hora en variable de alarma
 
     ; ---- Convertir Minutos (Posiciones 3 y 4) ----
-    ; Nota: En UTF-16, cada carácter mide 2 bytes; la posición 3 está en byte offset 6 (salta ':')
     movzx eax, word [rsi + 6]            ; Decenas de minuto en UTF-16
     sub al, '0'
     mov cl, 10
@@ -76,24 +75,24 @@ check_alarm:
     cmp al, [alarm_m]
     jne .done
 
-    ; ---- ¡COINCIDENCIA EXACTA: ACTIVAR DISPARO DE ALARMA! ----
+    ; ---- trigger ----
     mov byte [alarm_triggered], 1
 
 .increment_blink:
-    inc byte [blink_counter]             ; Avanza el contador de parpadeo visual
+    inc byte [blink_counter]             ; Avanza el contador de parpadeo
 
 .done:
     add rsp, 40
     ret
 
 ; ------------------------------------------------------------------------------
-; cancel_alarm: Desactiva la alarma armada o silencia la alarma disparada
+; cancel_alarm: Desactiva la alarma 
 ; ------------------------------------------------------------------------------
 cancel_alarm:
     sub rsp, 40
 
     mov byte [alarm_active], 0           ; Desactiva la alarma
-    mov byte [alarm_triggered], 0        ; Silencia el disparo
+    mov byte [alarm_triggered], 0        ; Reinicia estado
 
     add rsp, 40
     ret
@@ -105,13 +104,13 @@ section .data
 
 align 8
 alarm_active    db 0                    ; 1 = Alarma armada, 0 = Inactiva
-alarm_triggered db 0                    ; 1 = Alarma sonando / disparada
+alarm_triggered db 0                    ; 1 = Alarma disparada
 alarm_h         db 0                    ; Hora configurada (0-23)
 alarm_m         db 0                    ; Minuto configurado (0-59)
 alarm_input_idx db 0                    ; Posición del cursor para ingreso de dígitos (0-4)
 blink_counter   db 0                    ; Contador de ciclos para alternar colores de alerta
 
-; Búfer editable para el ingreso numérico en pantalla: "00:00\0" (UTF-16)
+; Búfer para el ingreso numérico en pantalla: "00:00\0" (UTF-16)
 align 8
 alarm_input_buf:
     dw '0', '0', ':', '0', '0', 0

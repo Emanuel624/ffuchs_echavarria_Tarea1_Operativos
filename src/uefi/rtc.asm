@@ -1,7 +1,7 @@
 ; ==============================================================================
 ; src/uefi/rtc.asm - Lectura del RTC (RuntimeServices->GetTime) y Formateo UTF-16
 ; ==============================================================================
-; En UEFI el acceso al Real-Time Clock se realiza mediante el servicio de
+; El acceso al Real-Time Clock se realiza mediante el servicio de
 ; ejecución RuntimeServices->GetTime, el cual devuelve una estructura EFI_TIME
 ; con los campos de fecha y hora ya convertidos a números binarios enteros.
 ; ==============================================================================
@@ -10,14 +10,14 @@ default rel
 bits 64
 
 ; ------------------------------------------------------------------------------
-; Offsets en EFI_RUNTIME_SERVICES
+; Offsets
 ; ------------------------------------------------------------------------------
-%define OFFSET_RUNTIMESERVICES_GET_TIME 0x18    ; GetTime(EFI_TIME *Time, *Caps) -> offset 24
+%define OFFSET_RUNTIMESERVICES_GET_TIME 0x18    ; GetTime(EFI_TIME *Time, *Caps), offset 24
 
 ; ------------------------------------------------------------------------------
-; Offsets dentro de la estructura estándar EFI_TIME (16 bytes en total)
+; Offsets dentro de la estructura estándar EFI_TIME (16 bytes)
 ; ------------------------------------------------------------------------------
-%define EFI_TIME_YEAR               0x00        ; UINT16 (2 bytes, ej: 2026)
+%define EFI_TIME_YEAR               0x00        ; UINT16 (2 bytes)
 %define EFI_TIME_MONTH              0x02        ; UINT8  (1 byte, 1-12)
 %define EFI_TIME_DAY                0x03        ; UINT8  (1 byte, 1-31)
 %define EFI_TIME_HOUR               0x04        ; UINT8  (1 byte, 0-23 entero binario)
@@ -27,17 +27,16 @@ bits 64
 section .text
 
 ; ------------------------------------------------------------------------------
-; uefi_get_time: Invoca RuntimeServices->GetTime para obtener la hora del hardware
+; uefi_get_time: RuntimeServices->GetTime obtener la hora del hardware
 ; Salida:
 ;   efi_time_data queda actualizado con la hora actual.
-;   RAX = EFI_STATUS (0 = EFI_SUCCESS).
 ; ------------------------------------------------------------------------------
 uefi_get_time:
     sub rsp, 40
 
     mov rax, [RuntimeServices]
     lea rcx, [efi_time_data]            ; Arg 1: Puntero a la estructura EFI_TIME receptora
-    xor rdx, rdx                        ; Arg 2: Capabilities = NULL (no requerido)
+    xor rdx, rdx                        
     call [rax + OFFSET_RUNTIMESERVICES_GET_TIME]
 
     add rsp, 40
@@ -47,7 +46,7 @@ uefi_get_time:
 ; bin_to_utf16_digits: Convierte un número binario (0-59) a dos caracteres UTF-16
 ; Entrada:
 ;   AL  = Valor numérico binario (0 a 59)
-;   RDI = Puntero de memoria donde se escribirán los 2 caracteres (4 bytes en total)
+;   RDI = Puntero de memoria donde se escriben
 ; ------------------------------------------------------------------------------
 bin_to_utf16_digits:
     movzx ax, al
@@ -56,7 +55,7 @@ bin_to_utf16_digits:
 
     ; Convertir decena a carácter UTF-16 ('0' + valor)
     movzx dx, al
-    add dx, '0'                         ; ASCII -> Código UTF-16 (16 bits)
+    add dx, '0'                         ; ASCII, Código UTF-16 (16 bits)
     mov [rdi], dx                       ; Escribe 2 bytes en buffer[offset]
 
     ; Convertir unidad a carácter UTF-16
@@ -68,22 +67,22 @@ bin_to_utf16_digits:
 ; ------------------------------------------------------------------------------
 ; uefi_format_time_string: Consulta el RTC y genera la cadena "HH:MM:SS\0" en UTF-16
 ; Salida:
-;   time_buffer queda listo para imprimirse directamente con ConOut->OutputString.
+;   time_buffer queda listo 
 ; ------------------------------------------------------------------------------
 uefi_format_time_string:
     sub rsp, 40
 
     call uefi_get_time                  ; 1. Lee la hora actual del hardware
 
-    ; 2. Formatear Horas (HH)
+    ; 2. Formatea Horas (HH)
     mov al, [efi_time_data + EFI_TIME_HOUR]
-    lea rdi, [time_buffer + 0]          ; Posición 0: Horas (2 caracteres = 4 bytes)
+    lea rdi, [time_buffer + 0]          ; Posición 0: Horas 
     call bin_to_utf16_digits
 
     ; Separador ':' (código UTF-16: 0x003A)
     mov word [time_buffer + 4], ':'
 
-    ; 3. Formatear Minutos (MM)
+    ; 3. Formatea Minutos (MM)
     mov al, [efi_time_data + EFI_TIME_MINUTE]
     lea rdi, [time_buffer + 6]          ; Posición 3: Minutos
     call bin_to_utf16_digits
@@ -91,7 +90,7 @@ uefi_format_time_string:
     ; Separador ':'
     mov word [time_buffer + 10], ':'
 
-    ; 4. Formatear Segundos (SS)
+    ; 4. Formatea Segundos (SS)
     mov al, [efi_time_data + EFI_TIME_SECOND]
     lea rdi, [time_buffer + 12]         ; Posición 6: Segundos
     call bin_to_utf16_digits
@@ -103,16 +102,16 @@ uefi_format_time_string:
     ret
 
 ; ------------------------------------------------------------------------------
-; Datos del módulo RTC
+; Datos del modulo RTC
 ; ------------------------------------------------------------------------------
 section .data
 
-; Búfer de 16 bytes que llena el firmware UEFI con la hora y fecha
+; Bufer de 16 bytes llena el firmware UEFI con la hora y fecha
 align 8
 efi_time_data:
     times 16 db 0
 
-; Cadena de texto UTF-16 para despliegue: "HH:MM:SS\0" (8 caracteres + null = 9 words)
+; Cadena de texto UTF-16 para despliegue: "HH:MM:SS\0" 
 align 8
 time_buffer:
     times 10 dw 0

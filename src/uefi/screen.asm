@@ -1,10 +1,9 @@
 ; ==============================================================================
 ; src/uefi/screen.asm - Manejo de Pantalla y Video en UEFI (ConOut Protocol)
 ; ==============================================================================
-; En UEFI no existen las interrupciones de BIOS (como INT 10h).
+; En UEFI no existen las interrupciones de BIOS .
 ; Todas las operaciones de salida de texto y cursor se realizan llamando
 ; a las funciones del protocolo EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL (ConOut)
-; a través de su tabla de punteros a función.
 ; ==============================================================================
 
 default rel
@@ -12,7 +11,7 @@ bits 64
 
 ; ------------------------------------------------------------------------------
 ; Offsets en la estructura EFI_SIMPLE_TEXT_OUTPUT_PROTOCOL (ConOut)
-; Según la especificación UEFI (punteros de 64 bits = 8 bytes cada uno):
+; Según la especificación UEFI (punteros de 64 bits cada uno):
 ; ------------------------------------------------------------------------------
 %define OFFSET_CONOUT_RESET         0x00        ; Reset(This, ExtendedVerification)
 %define OFFSET_CONOUT_OUTPUT_STRING 0x08        ; OutputString(This, *String)
@@ -26,7 +25,6 @@ bits 64
 
 ; ------------------------------------------------------------------------------
 ; Atributos de Color de Texto y Fondo para ConOut->SetAttribute
-; Formato: Nibble superior = Fondo (0-7), Nibble inferior = Texto (0-F)
 ; ------------------------------------------------------------------------------
 %define COLOR_BLACK                 0x00
 %define COLOR_BLUE                  0x01
@@ -56,8 +54,6 @@ section .text
 
 ; ------------------------------------------------------------------------------
 ; uefi_clear_screen: Limpia toda la pantalla de la consola UEFI
-; Convención Microsoft x64:
-;   RCX = ConOut (Puntero 'This' obligatorio en llamadas a métodos UEFI)
 ; ------------------------------------------------------------------------------
 uefi_clear_screen:
     sub rsp, 40                         ; Reserva 32 bytes shadow space + 8 bytes para alinear RSP a 16
@@ -69,7 +65,6 @@ uefi_clear_screen:
 
 ; ------------------------------------------------------------------------------
 ; uefi_hide_cursor: Oculta el cursor de texto
-;   RCX = ConOut (This), RDX = 0 (Visible = FALSE)
 ; ------------------------------------------------------------------------------
 uefi_hide_cursor:
     sub rsp, 40
@@ -82,7 +77,6 @@ uefi_hide_cursor:
 
 ; ------------------------------------------------------------------------------
 ; uefi_show_cursor: Muestra el cursor de texto
-;   RCX = ConOut (This), RDX = 1 (Visible = TRUE)
 ; ------------------------------------------------------------------------------
 uefi_show_cursor:
     sub rsp, 40
@@ -98,8 +92,6 @@ uefi_show_cursor:
 ; Entrada:
 ;   RDX = Columna (eje X, base 0)
 ;   R8  = Fila (eje Y, base 0)
-; Convención Microsoft x64:
-;   RCX = ConOut (This), RDX = Column, R8 = Row
 ; ------------------------------------------------------------------------------
 uefi_set_cursor:
     sub rsp, 40
@@ -114,9 +106,7 @@ uefi_set_cursor:
 ; ------------------------------------------------------------------------------
 ; uefi_set_color: Establece los colores de texto y fondo de la consola
 ; Entrada:
-;   RDX = Atributo de color (ej: COLOR_YELLOW_ON_BLACK)
-; Convención Microsoft x64:
-;   RCX = ConOut (This), RDX = Attribute
+;   RDX = Atributo de color 
 ; ------------------------------------------------------------------------------
 uefi_set_color:
     sub rsp, 40
@@ -131,8 +121,6 @@ uefi_set_color:
 ; uefi_print_string: Imprime una cadena en formato UTF-16LE terminada en 0x0000
 ; Entrada:
 ;   RDX = Puntero a la cadena UTF-16
-; Convención Microsoft x64:
-;   RCX = ConOut (This), RDX = Puntero a CHAR16*
 ; ------------------------------------------------------------------------------
 uefi_print_string:
     sub rsp, 40
