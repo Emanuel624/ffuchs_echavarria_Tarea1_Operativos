@@ -1,0 +1,15 @@
+# Directorio de binarios compilados
+bin/
+
+# Archivos binarios e imágenes generadas
+*.bin
+*.img
+*.iso
+*.o
+
+# Archivos de configuración local de VS Code
+.vscode/
+
+# Archivos de sistema / temporales
+.DS_Store
+*~
